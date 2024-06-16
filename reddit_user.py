@@ -19,6 +19,14 @@ from text_parser import TextParser
 
 parser = TextParser()
 
+def decode_if_bytes(obj):
+    """
+    Convert bytes to str helper function
+    """
+    if isinstance(obj, bytes):
+        return obj.decode('utf-8')
+    return obj
+
 class UserNotFoundError(Exception):
     pass
 
@@ -451,17 +459,14 @@ class RedditUser:
             # rate limiting (429) errors
 
             for child in response_json["data"]["children"]:
-                id = child["data"]["id"].encode("ascii", "ignore")
-                subreddit = child["data"]["subreddit"].\
-                    encode("ascii", "ignore")
+                id = decode_if_bytes(child["data"]["id"])  # No encoding
+                subreddit = decode_if_bytes(child["data"]["subreddit"])  # No encoding
                 text = child["data"]["body"]
                 created_utc = child["data"]["created_utc"]
                 score = child["data"]["score"]
-                submission_id = child["data"]["link_id"].\
-                    encode("ascii", "ignore").lower()[3:]
+                submission_id = decode_if_bytes(child["data"]["link_id"].lower()[3:])  # No encoding
                 edited = child["data"]["edited"]
-                top_level = True \
-                    if child["data"]["parent_id"].startswith("t3") else False
+                top_level = True if child["data"]["parent_id"].startswith("t3") else False
                 gilded = child["data"]["gilded"]
                 permalink = f"http://www.reddit.com/r/{subreddit}/comments/{submission_id}/_/{id}"
 
@@ -509,17 +514,17 @@ class RedditUser:
             # TODO - Error handling for user not found (404) and rate limiting (429) errors
 
             for child in response_json["data"]["children"]:
-                id = child["data"]["id"]
-                subreddit = child["data"]["subreddit"]
-                text = child["data"]["selftext"]
+                id = decode_if_bytes(child["data"]["id"])  # decode here
+                subreddit = decode_if_bytes(child["data"]["subreddit"])  # decode here
+                text = decode_if_bytes(child["data"]["selftext"])
                 created_utc = child["data"]["created_utc"]
                 score = child["data"]["score"]
-                permalink = "http://www.reddit.com" + child["data"]["permalink"]
-                url = child["data"]["url"]
-                title = child["data"]["title"]
+                permalink = "http://www.reddit.com" + decode_if_bytes(child["data"]["permalink"])  # decode here
+                url = decode_if_bytes(child["data"]["url"])  # decode here
+                title = decode_if_bytes(child["data"]["title"])  # decode here
                 is_self = child["data"]["is_self"]
                 gilded = child["data"]["gilded"]
-                domain = child["data"]["domain"]
+                domain = decode_if_bytes(child["data"]["domain"])  # decode here
 
                 submission = Submission(
                     id=id,
@@ -1153,12 +1158,6 @@ class RedditUser:
         # Redditor has no data?
         if not (self.comments or self.submissions):
             raise NoDataError
-
-        # Convert bytes to str helper function
-        def decode_if_bytes(obj):
-            if isinstance(obj, bytes):
-                return obj.decode('utf-8')
-            return obj
 
         # Recursively walk through the dictionary and convert bytes to str
         def walk_dict(obj):
