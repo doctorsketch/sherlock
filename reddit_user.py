@@ -19,14 +19,6 @@ from text_parser import TextParser
 
 parser = TextParser()
 
-def decode_if_bytes(obj):
-    """
-    Convert bytes to str helper function
-    """
-    if isinstance(obj, bytes):
-        return obj.decode('utf-8')
-    return obj
-
 class UserNotFoundError(Exception):
     pass
 
@@ -108,6 +100,15 @@ class Util:
         """
         return ((val - src[0])/(src[1] - src[0])) * (dst[1]-dst[0]) + dst[0]
 
+    @staticmethod
+    def decode_if_bytes(obj):
+        """
+        Convert bytes to str helper function
+        """
+        if isinstance(obj, bytes):
+            return obj.decode('utf-8')
+        return obj
+    
 # Base class for comments and submissions
 class Post(object):
     """
@@ -459,12 +460,12 @@ class RedditUser:
             # rate limiting (429) errors
 
             for child in response_json["data"]["children"]:
-                id = decode_if_bytes(child["data"]["id"])  # No encoding
-                subreddit = decode_if_bytes(child["data"]["subreddit"])  # No encoding
+                id = Util.decode_if_bytes(child["data"]["id"])  # No encoding
+                subreddit = Util.decode_if_bytes(child["data"]["subreddit"])  # No encoding
                 text = child["data"]["body"]
                 created_utc = child["data"]["created_utc"]
                 score = child["data"]["score"]
-                submission_id = decode_if_bytes(child["data"]["link_id"].lower()[3:])  # No encoding
+                submission_id = Util.decode_if_bytes(child["data"]["link_id"].lower()[3:])  # No encoding
                 edited = child["data"]["edited"]
                 top_level = True if child["data"]["parent_id"].startswith("t3") else False
                 gilded = child["data"]["gilded"]
@@ -514,17 +515,17 @@ class RedditUser:
             # TODO - Error handling for user not found (404) and rate limiting (429) errors
 
             for child in response_json["data"]["children"]:
-                id = decode_if_bytes(child["data"]["id"])  # decode here
-                subreddit = decode_if_bytes(child["data"]["subreddit"])  # decode here
-                text = decode_if_bytes(child["data"]["selftext"])
+                id = Util.decode_if_bytes(child["data"]["id"])  # decode here
+                subreddit = Util.decode_if_bytes(child["data"]["subreddit"])  # decode here
+                text = Util.decode_if_bytes(child["data"]["selftext"])
                 created_utc = child["data"]["created_utc"]
                 score = child["data"]["score"]
-                permalink = "http://www.reddit.com" + decode_if_bytes(child["data"]["permalink"])  # decode here
-                url = decode_if_bytes(child["data"]["url"])  # decode here
-                title = decode_if_bytes(child["data"]["title"])  # decode here
+                permalink = "http://www.reddit.com" + Util.decode_if_bytes(child["data"]["permalink"])  # decode here
+                url = Util.decode_if_bytes(child["data"]["url"])  # decode here
+                title = Util.decode_if_bytes(child["data"]["title"])  # decode here
                 is_self = child["data"]["is_self"]
                 gilded = child["data"]["gilded"]
-                domain = decode_if_bytes(child["data"]["domain"])  # decode here
+                domain = Util.decode_if_bytes(child["data"]["domain"])  # decode here
 
                 submission = Submission(
                     id=id,
@@ -1166,7 +1167,7 @@ class RedditUser:
             elif isinstance(obj, list):
                 return [walk_dict(i) for i in obj]
             else:
-                return decode_if_bytes(obj)
+                return Util.decode_if_bytes(obj)
 
         # Format metrics
         metrics_date = []
@@ -1231,7 +1232,7 @@ class RedditUser:
                 ), lambda x: x[0]
             )
         ]:
-            subreddit_name = decode_if_bytes(name)
+            subreddit_name = Util.decode_if_bytes(name)
             if subreddit_name in subreddits_dict:
                 subreddit = subreddits_dict[subreddit_name]
             else:
@@ -1247,7 +1248,7 @@ class RedditUser:
             if level1:
                 level1["children"].append(
                     {
-                        "name": decode_if_bytes(name),
+                        "name": Util.decode_if_bytes(name),
                         "comments": comments,
                         "submissions": 0,
                         "posts": comments,
@@ -1262,7 +1263,7 @@ class RedditUser:
                         "name": topic_level1,
                         "children": [
                             {
-                                "name": decode_if_bytes(name),
+                                "name": Util.decode_if_bytes(name),
                                 "comments": comments,
                                 "submissions": 0,
                                 "posts": comments,
@@ -1284,7 +1285,7 @@ class RedditUser:
                 ), lambda x: x[0]
             )
         ]:
-            subreddit_name = decode_if_bytes(name)
+            subreddit_name = Util.decode_if_bytes(name)
             if subreddit_name in subreddits_dict:
                 subreddit = subreddits_dict[subreddit_name]
             else:
@@ -1298,7 +1299,7 @@ class RedditUser:
             )[0]
             if level1:
                 sub_in_level1 = (
-                    [s for s in level1["children"] if s["name"] == decode_if_bytes(name)] or [None]
+                    [s for s in level1["children"] if s["name"] == Util.decode_if_bytes(name)] or [None]
                 )[0]
                 if sub_in_level1:
                     sub_in_level1["submissions"] = submissions
@@ -1308,7 +1309,7 @@ class RedditUser:
                 else:
                     level1["children"].append(
                         {
-                            "name": decode_if_bytes(name),
+                            "name": Util.decode_if_bytes(name),
                             "comments": 0,
                             "submissions": submissions,
                             "posts": submissions,
@@ -1323,7 +1324,7 @@ class RedditUser:
                         "name": topic_level1,
                         "children": [
                             {
-                                "name": decode_if_bytes(name),
+                                "name": Util.decode_if_bytes(name),
                                 "comments": 0,
                                 "submissions": submissions,
                                 "posts": submissions,
@@ -1349,10 +1350,10 @@ class RedditUser:
             [c.subreddit for c in self.comments]
         ).most_common():
             if (
-                decode_if_bytes(name) in default_subs and
+                Util.decode_if_bytes(name) in default_subs and
                 count >= self.MIN_THRESHOLD_FOR_DEFAULT
             ) or count >= self.MIN_THRESHOLD:
-                decoded_name = decode_if_bytes(name)
+                decoded_name = Util.decode_if_bytes(name)
                 if decoded_name in subreddits_dict:
                     subreddit = subreddits_dict[decoded_name]
                 else:
@@ -1372,7 +1373,7 @@ class RedditUser:
         topics = []
 
         for comment in self.comments:
-            decoded_subreddit = decode_if_bytes(comment.subreddit)
+            decoded_subreddit = Util.decode_if_bytes(comment.subreddit)
             if decoded_subreddit in subreddits_dict:
                 subreddit = subreddits_dict[decoded_subreddit]
             else:
@@ -1392,7 +1393,7 @@ class RedditUser:
                 topics.append("Other")
 
         for submission in self.submissions:
-            subreddit_name = decode_if_bytes(submission.subreddit)
+            subreddit_name = Util.decode_if_bytes(submission.subreddit)
             if subreddit_name in subreddits_dict:
                 subreddit = subreddits_dict[subreddit_name]
             else:
@@ -1439,7 +1440,7 @@ class RedditUser:
 
         common_words = [
             {
-                "text": decode_if_bytes(word),
+                "text": Util.decode_if_bytes(word),
                 "size": count
             } for word, count in Counter(
                 parser.common_words(self.corpus)
