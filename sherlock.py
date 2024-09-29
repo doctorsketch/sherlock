@@ -14,11 +14,14 @@ print(f"Processing user {username}")
 start = datetime.datetime.now()
 try:
     u = RedditUser(username)
-    # Assuming u is JSON formatted as a string, load it to a dictionary
-    user_data = json.loads(str(u))  # Use str(u) if u.__str__() returns a JSON string
+    # Call the results method to get the JSON string
+    user_data_json = u.results()
+    # Load the JSON string to a dictionary
+    user_data = json.loads(user_data_json)
     # Write the user_data to a file named username.json
     with open(f"{username}.json", "w") as file:
         json.dump(user_data, file, indent=4)  # Pretty-print with an indent of 4 spaces
+        print(f"Data saved to {username}.json")
 except UserNotFoundError:
     print(f"User {username} not found")
 except NoDataError:

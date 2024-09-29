@@ -1,21 +1,22 @@
 # -*- coding: utf-8 -*-
-
-import csv
 import datetime
 import re
 import json
-import time
-import sys
 import calendar
 from collections import Counter
 from itertools import groupby
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
+from requests.auth import HTTPBasicAuth
+import os
+from dotenv import load_dotenv
 
 import requests
 import pytz
 
 from subreddits import subreddits_dict, ignore_text_subs, default_subs
 from text_parser import TextParser
+
+load_dotenv()
 
 parser = TextParser()
 
@@ -180,17 +181,10 @@ class RedditUser:
     """
     Models a redditor object. Contains methods for processing
     comments and submissions.
-
     """
 
-    # If user has posted in a sub 3 times or more, they are
-    # probably interested in the topic.
     MIN_THRESHOLD = 3
     MIN_THRESHOLD_FOR_DEFAULT = 10
-    HEADERS = {
-        'User-Agent': 'Sherlock v0.1 by /u/orionmelt'
-    }
-
     IMAGE_DOMAINS = [
         "imgur.com",
         "flickr.com",
@@ -201,18 +195,15 @@ class RedditUser:
     IMAGE_EXTENSIONS = ["jpg", "png", "gif", "bmp"]
 
     def __init__(self, username, json_data=None):
-        # Populate username and about data
         self.username = username
-
         self.comments = []
         self.submissions = []
 
         if not json_data:
-            # Retrieve about
+            self.access_token = self.get_access_token()
             self.about = self.get_about()
             if not self.about:
                 raise UserNotFoundError
-            # Retrieve comments and submissions
             self.comments = self.get_comments()
             self.submissions = self.get_submissions()
         else:
@@ -225,7 +216,8 @@ class RedditUser:
                 "comment_karma" : data["about"]["comment_karma"],
                 "name" : data["about"]["name"],
                 "reddit_id" : data["about"]["id"],
-                "is_mod" : data["about"]["is_mod"]
+                "is_mod" : data["about"]["is_mod"],
+                "snoovatar_img" : data["about"]["snoovatar_img"] if "snoovatar_img" in data["about"] else data["about"]["icon_img"] if "icon_img" in data["about"] else ""
             }
             for c in data["comments"]:
                 self.comments.append(
@@ -265,62 +257,43 @@ class RedditUser:
         self.comment_karma = self.about["comment_karma"]
         self.reddit_id = self.about["reddit_id"]
         self.is_mod = self.about["is_mod"]
+        self.snoovatar_img_url = self.about["snoovatar_img"]
 
-        # Initialize other properties
         self.today = datetime.datetime.now(tz=pytz.utc).date()
-
         start = self.signup_date.date()
-
         self.age_in_days = (self.today - start).days
-
         self.first_post_date = None
-
         self.earliest_comment = None
         self.latest_comment = None
         self.best_comment = None
         self.worst_comment = None
-
         self.earliest_submission = None
         self.latest_submission = None
         self.best_submission = None
         self.worst_submission = None
-
         self.metrics = {
-            "date" : [],
-            "weekday" : [],
-            "hour" : [],
-            "subreddit" : [],
-            "heatmap" : [],
-            "recent_karma" : [],
-            "recent_posts" : []
+            "date": [],
+            "weekday": [],
+            "hour": [],
+            "subreddit": [],
+            "heatmap": [],
+            "recent_karma": [],
+            "recent_posts": []
         }
-
         self.submissions_by_type = {
-            "name" : "All",
-            "children" : [
-                {
-                    "name" : "Self",
-                    "children" : []
-                },
-                {
-                    "name" : "Image",
-                    "children" : []
-                },
-                {
-                    "name" : "Video",
-                    "children" : []
-                },
-                {
-                    "name" : "Other",
-                    "children" : []
-                }
+            "name": "All",
+            "children": [
+                {"name": "Self", "children": []},
+                {"name": "Image", "children": []},
+                {"name": "Video", "children": []},
+                {"name": "Other", "children": []}
             ]
         }
 
         self.metrics["date"] = [
             {
-                "date" : (year, month),
-                "comments" : 0,
+                "date": (year, month),
+                "comments": 0,
                 "submissions": 0,
                 "comment_karma": 0,
                 "submission_karma": 0
@@ -363,198 +336,155 @@ class RedditUser:
         self.genders = []
         self.orientations = []
         self.relationship_partners = []
-
-        # Data that we are reasonably sure that *are* names of places.
         self.places_lived = []
-
-        # Data that looks like it could be a place, but we're not sure.
         self.places_lived_extra = []
-
-        # Data that we are reasonably sure that *are* names of places.
         self.places_grew_up = []
-
-        # Data that looks like it could be a place, but we're not sure.
         self.places_grew_up_extra = []
-
         self.family_members = []
         self.pets = []
-
         self.attributes = []
         self.attributes_extra = []
-
         self.possessions = []
         self.possessions_extra = []
-
         self.actions = []
         self.actions_extra = []
-
         self.favorites = []
         self.sentiments = []
-
         self.derived_attributes = {
-            "family_members" : [],
-            "gadget" : [],
-            "gender" : [],
-            "locations" : [],
-            "orientation" : [],
-            "physical_characteristics" : [],
-            "political_view" : [],
-            "possessions" : [],
-            "religion and spirituality" : []
+            "family_members": [],
+            "gadget": [],
+            "gender": [],
+            "locations": [],
+            "orientation": [],
+            "physical_characteristics": [],
+            "political_view": [],
+            "possessions": [],
+            "religion and spirituality": []
         }
-
         self.corpus = ""
-
         self.commented_dates = []
         self.submitted_dates = []
-
         self.lurk_period = None
-
         self.comments_gilded = 0
         self.submissions_gilded = 0
 
         self.process()
 
-    def __str__(self):
-        return str(self.results())
+    def get_access_token(self):
+        # Access the environment variables
+        REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
+        REDDIT_SECRET = os.getenv('REDDIT_SECRET')
+        REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT')
+        
+        data = {'grant_type': 'client_credentials'}
+        auth = HTTPBasicAuth(REDDIT_CLIENT_ID, REDDIT_SECRET)
+        headers = {'User-Agent': REDDIT_USER_AGENT}
+        response = requests.post('https://www.reddit.com/api/v1/access_token', auth=auth, data=data, headers=headers)
+        token = response.json().get('access_token')
+        return token
+
+    def make_request(self, endpoint, params=None):
+        REDDIT_USER_AGENT = 'snoosnoop by /u/MemoryEmptyAgain'
+        headers = {
+            'Authorization': f'bearer {self.access_token}',
+            'User-Agent': REDDIT_USER_AGENT
+        }
+        response = requests.get(f'https://oauth.reddit.com{endpoint}', headers=headers, params=params)
+        return response.json()
 
     def get_about(self):
-        """
-        Returns basic data about redditor.
-
-        """
-        url = f"http://www.reddit.com/user/{self.username}/about.json"
-        response = requests.get(url, headers=self.HEADERS, timeout=10)
-        response_json = response.json()
-        if "error" in response_json and response_json["error"] == 404:
-            return None
-        about = {
-            "created_utc" : datetime.datetime.fromtimestamp(
-                response_json["data"]["created_utc"], tz=pytz.utc
-            ),
-            "link_karma" : response_json["data"]["link_karma"],
-            "comment_karma" : response_json["data"]["comment_karma"],
-            "name" : response_json["data"]["name"],
-            "reddit_id" : response_json["data"]["id"],
-            "is_mod" : response_json["data"]["is_mod"]
-        }
-
-        return about
-
-    def get_comments(self, limit=None):
-        """
-        Returns a list of redditor's comments.
-
-        """
-
-        comments = []
-        more_comments = True
-        after = None
-        base_url = f"http://www.reddit.com/user/{self.username}/comments/.json?limit=100"
-        url = base_url
-        while more_comments:
-            response = requests.get(url, headers=self.HEADERS, timeout=10)
-            response_json = response.json()
-
-            # TODO - Error handling for user not found (404) and
-            # rate limiting (429) errors
-
-            for child in response_json["data"]["children"]:
-                id = Util.decode_if_bytes(child["data"]["id"])  # No encoding
-                subreddit = Util.decode_if_bytes(child["data"]["subreddit"])  # No encoding
-                text = child["data"]["body"]
-                created_utc = child["data"]["created_utc"]
-                score = child["data"]["score"]
-                submission_id = Util.decode_if_bytes(child["data"]["link_id"].lower()[3:])  # No encoding
-                edited = child["data"]["edited"]
-                top_level = True if child["data"]["parent_id"].startswith("t3") else False
-                gilded = child["data"]["gilded"]
-                permalink = f"http://www.reddit.com/r/{subreddit}/comments/{submission_id}/_/{id}"
-
-                comment = Comment(
-                    id=id,
-                    subreddit=subreddit,
-                    text=text,
-                    created_utc=created_utc,
-                    score=score,
-                    permalink=permalink,
-                    submission_id=submission_id,
-                    edited=edited,
-                    top_level=top_level,
-                    gilded=gilded
-                )
-
-                comments.append(comment)
-
-            after = response_json["data"]["after"]
-
-            if after:
-                url = f"{base_url}&after={after}"
-                # reddit may rate limit if we don't wait for 2 seconds
-                # between successive requests. If that happens,
-                # uncomment and increase sleep time in the following line.
-                #time.sleep(0.5)
+        endpoint = f'/user/{self.username}/about'
+        data = self.make_request(endpoint)
+        if 'data' in data:
+            icon_img_url = data['data'].get('icon_img', '')
+            if icon_img_url:
+                parsed_url = urlparse(icon_img_url)
+                clean_url = urlunparse(parsed_url._replace(query=''))
             else:
-                more_comments = False
+                clean_url = ''
+
+            return {
+                "created_utc": datetime.datetime.fromtimestamp(data['data']['created_utc'], tz=pytz.utc),
+                "link_karma": data['data']['link_karma'],
+                "comment_karma": data['data']['comment_karma'],
+                "name": data['data']['name'],
+                "reddit_id": data['data']['id'],
+                "is_mod": data['data']['is_mod'],
+                "snoovatar_img": data['data']['snoovatar_img'] if data['data']['snoovatar_img'] != '' else clean_url,
+                "icon_img_url": clean_url
+            }
+        return None
+
+    def get_comments(self):
+        endpoint = f'/user/{self.username}/comments/.json?limit=100'
+        comments = []
+        after = None
+
+        while True:
+            params = {'after': after} if after else {}
+            data = self.make_request(endpoint, params=params)
+
+            if 'data' in data and 'children' in data['data']:
+                for c in data['data']['children']:
+                    c_data = c['data']
+                    comments.append(
+                        Comment(
+                            id=c_data['id'],
+                            subreddit=c_data['subreddit'],
+                            text=c_data['body'],
+                            created_utc=c_data["created_utc"],
+                            score=c_data['score'],
+                            permalink=c_data['permalink'],
+                            submission_id=c_data['link_id'],
+                            edited=c_data['edited'],
+                            top_level=c_data['parent_id'].startswith('t3'),
+                            gilded=c_data['gilded']
+                        )
+                    )
+
+                after = data['data']['after']
+                if not after:
+                    break
+            else:
+                break
 
         return comments
 
-    def get_submissions(self, limit=None):
-        """
-        Returns a list of redditor's submissions.
-        """
+    def get_submissions(self):
+        endpoint = f'/user/{self.username}/submitted/.json?limit=100'
         submissions = []
-        more_submissions = True
         after = None
-        base_url = f"http://www.reddit.com/user/{self.username}/submitted/.json?limit=100"
-        url = base_url
-        while more_submissions:
-            response = requests.get(url, headers=self.HEADERS, timeout=10)
-            response_json = response.json()
 
-            # TODO - Error handling for user not found (404) and rate limiting (429) errors
+        while True:
+            params = {'after': after} if after else {}
+            data = self.make_request(endpoint, params=params)
 
-            for child in response_json["data"]["children"]:
-                id = Util.decode_if_bytes(child["data"]["id"])  # decode here
-                subreddit = Util.decode_if_bytes(child["data"]["subreddit"])  # decode here
-                text = Util.decode_if_bytes(child["data"]["selftext"])
-                created_utc = child["data"]["created_utc"]
-                score = child["data"]["score"]
-                permalink = "http://www.reddit.com" + Util.decode_if_bytes(child["data"]["permalink"])  # decode here
-                url = Util.decode_if_bytes(child["data"]["url"])  # decode here
-                title = Util.decode_if_bytes(child["data"]["title"])  # decode here
-                is_self = child["data"]["is_self"]
-                gilded = child["data"]["gilded"]
-                domain = Util.decode_if_bytes(child["data"]["domain"])  # decode here
+            if 'data' in data and 'children' in data['data']:
+                for s in data['data']['children']:
+                    s_data = s['data']
+                    submissions.append(
+                        Submission(
+                            id=s_data['id'],
+                            subreddit=s_data['subreddit'],
+                            text=s_data['selftext'],
+                            created_utc=s_data["created_utc"],
+                            score=s_data['score'],
+                            permalink=s_data['permalink'],
+                            url=s_data['url'],
+                            title=s_data['title'],
+                            is_self=s_data['is_self'],
+                            gilded=s_data['gilded'],
+                            domain=s_data['domain']
+                        )
+                    )
 
-                submission = Submission(
-                    id=id,
-                    subreddit=subreddit,
-                    text=text,
-                    created_utc=created_utc,
-                    score=score,
-                    permalink=permalink,
-                    url=url,
-                    title=title,
-                    is_self=is_self,
-                    gilded=gilded,
-                    domain=domain
-                )
-
-                submissions.append(submission)
-
-            after = response_json["data"]["after"]
-
-            if after:
-                url = f"{base_url}&after={after}"
-                # reddit may rate limit if we don't wait for 2 seconds between successive requests.
-                # If that happens, uncomment and increase sleep time in the following line.
-                # time.sleep(0.5)
+                after = data['data']['after']
+                if not after:
+                    break
             else:
-                more_submissions = False
+                break
 
         return submissions
-
 
     def process(self):
         """
@@ -1888,6 +1818,7 @@ class RedditUser:
                 "signup_date": calendar.timegm(
                     self.signup_date.utctimetuple()
                 ),
+                "snoovatar_img_url": self.snoovatar_img_url,
                 "first_post_date": calendar.timegm(
                     self.first_post_date.utctimetuple()
                 ),
