@@ -371,10 +371,6 @@ class RedditUser:
         self.process()
 
     def get_access_token(self):
-        # Access the environment variables
-        REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
-        REDDIT_SECRET = os.getenv('REDDIT_SECRET')
-        REDDIT_USER_AGENT = os.getenv('REDDIT_USER_AGENT')
         
         data = {'grant_type': 'client_credentials'}
         auth = HTTPBasicAuth(REDDIT_CLIENT_ID, REDDIT_SECRET)
@@ -1796,9 +1792,8 @@ class RedditUser:
         if hmin < hmax:
             heatmap = ''.join(
                 [
-                    hex(
-                        int(Util.scale(h, (hmin, hmax), (1, 15)))
-                    )[2:] if h > 0 else "0" for h in self.metrics["heatmap"]
+                    hex(int(h))[2:] if h > 0 else "0" 
+                    for h in self.metrics["heatmap"]
                 ]
             )
         else:
@@ -1822,6 +1817,7 @@ class RedditUser:
                 "first_post_date": calendar.timegm(
                     self.first_post_date.utctimetuple()
                 ),
+                
                 "lurk_period": self.lurk_period,
                 "comments": {
                     "count": len(self.comments),
