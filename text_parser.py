@@ -599,6 +599,7 @@ class TextParser:
 
     substitutions = [
         (r"\b(im|i'm)\b", "i am"),
+        (r"\b(ive|i've)\b", "i have"),
         (r"\b(id|i'd)\b", "i would"),
         (r"\b(i'll)\b", "i will"),
         (r"\bbf|b/f\b", "boyfriend"),
@@ -624,8 +625,9 @@ class TextParser:
         (r"\bfave\b", "favorite"),
         (r"\bhubby\b", "husband"),
         (r"\bheres\b", "here is"),
-        (r"\btheres\b", "there is"),
-        (r"\bwheres\b", "where is"),
+        (r"\b(it's)\b", "it is"),
+        (r"\b(there's|theres)\b", "there is"),
+        (r"\b(where's|wheres)\b", "where is"),
         # Common acronyms, abbreviations and slang terms
         (r"\birl\b", "in real life"),
         (r"\biar\b", "in a relationship"),
@@ -1124,15 +1126,30 @@ class TextParser:
     def common_words(self, text):
         """
         Given a text, splits it into words and returns as a list
-        after excluding stop words.
-
+        after excluding stop words. Preserves contractions except 's.
         """
-
-        return [
+        if not text:
+            return []
+        
+        # First apply all substitutions to expand contractions
+        text = self.clean_up(text, self.substitutions)
+        
+        # Convert to lowercase
+        text = text.lower()
+        
+        # Split into words and filter
+        words = text.split()
+        
+        # Filter out stopwords and short words
+        filtered_words = [
             word
-            for word in TextBlob(self.clean_up(text, self.corpus_substitutions)).words
-            if (word not in stopwords and word.isalpha())
+            for word in words
+            if (word not in stopwords 
+                and len(word) > 1
+                and word.isalpha())  # Only pure alphabetic words
         ]
+        
+        return filtered_words
 
     def total_word_count(self, text):
         """
