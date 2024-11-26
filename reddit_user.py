@@ -371,10 +371,12 @@ class RedditUser:
         self.process()
 
     def get_access_token(self):
-        
         data = {'grant_type': 'client_credentials'}
-        auth = HTTPBasicAuth(REDDIT_CLIENT_ID, REDDIT_SECRET)
-        headers = {'User-Agent': REDDIT_USER_AGENT}
+        auth = HTTPBasicAuth(
+            os.environ.get('REDDIT_CLIENT_ID'),
+            os.environ.get('REDDIT_SECRET')
+        )
+        headers = {'User-Agent': os.environ.get('REDDIT_USER_AGENT')}
         response = requests.post('https://www.reddit.com/api/v1/access_token', auth=auth, data=data, headers=headers)
         token = response.json().get('access_token')
         return token
