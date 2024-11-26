@@ -1,16 +1,18 @@
 # -*- coding: utf-8 -*-
 
 import re
+import os
+import sys
+import nltk
+from nltk.tokenize import sent_tokenize, word_tokenize
+from nltk.tag import pos_tag
+from nltk.corpus import wordnet
 
 from nltk import RegexpParser
 from textblob import TextBlob, Word
-from textblob.taggers import PatternTagger
 from textblob.sentiments import NaiveBayesAnalyzer
-from textblob.exceptions import MissingCorpusError
 
-pattern_tagger = PatternTagger()
 naive_bayes_analyzer = NaiveBayesAnalyzer()
-
 
 stopwords = [
     "a",
@@ -821,6 +823,88 @@ class TextParser:
 
     chunker = RegexpParser(grammar)
 
+    def download_nltk_resources(self):
+        """
+        Downloads required NLTK resources if not already present.
+        Uses virtual environment path when available.
+        """
+        # Get the virtual environment path
+        if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
+            # We're in a virtual environment
+            venv_path = sys.prefix
+            nltk_data_path = os.path.join(venv_path, 'nltk_data')
+        else:
+            # Fallback to user directory if not in venv
+            nltk_data_path = os.path.join(os.path.expanduser('~'), 'nltk_data')
+        
+        # Ensure the directory exists
+        os.makedirs(nltk_data_path, exist_ok=True)
+        
+        # Add our venv path to NLTK's data path
+        nltk.data.path.insert(0, nltk_data_path)
+        
+        print(f"Using NLTK data path: {nltk_data_path}")
+        
+        required_resources = {
+            'averaged_perceptron_tagger': ('taggers', 'averaged_perceptron_tagger'),
+            'punkt': ('tokenizers', 'punkt'),
+            'movie_reviews': ('corpora', 'movie_reviews'),
+            'brown': ('corpora', 'brown'),
+            'conll2000': ('corpora', 'conll2000')
+        }
+        
+        # Special handling for wordnet
+        try:
+            wordnet.ensure_loaded()
+        except LookupError:
+            print("Downloading wordnet...")
+            nltk.download('wordnet', download_dir=nltk_data_path)
+            try:
+                wordnet.ensure_loaded()
+                print("Wordnet successfully loaded")
+            except:
+                print("Warning: Issues with wordnet loading")
+        
+        # Handle other resources
+        for resource, (folder, name) in required_resources.items():
+            resource_path = os.path.join(nltk_data_path, folder, name)
+            if not os.path.exists(resource_path):
+                print(f"Downloading {resource}...")
+                nltk.download(resource, download_dir=nltk_data_path, quiet=True)
+                if os.path.exists(resource_path):
+                    print(f"Successfully downloaded {resource}")
+                else:
+                    print(f"Warning: {resource} download may have failed")
+
+        # Verify all resources
+        print("\nVerifying resources...")
+        all_found = True
+        
+        # Check wordnet separately
+        try:
+            wordnet.ensure_loaded()
+            print("Wordnet verified")
+        except:
+            print("Warning: Wordnet not properly loaded")
+            all_found = False
+        
+        # Check other resources
+        for resource, (folder, name) in required_resources.items():
+            resource_path = os.path.join(nltk_data_path, folder, name)
+            if not os.path.exists(resource_path):
+                print(f"Warning: {resource} not found at {resource_path}")
+                all_found = False
+            else:
+                pass
+                # Print if resource is found
+                # print(f"Found {resource}")
+
+        
+        if all_found:
+            print("All resources verified successfully")
+        else:
+            print("Some resources are missing")
+
     def clean_up(self, text, substitutions):
         """
         Removes unnecessary words from text and replaces common
@@ -1033,77 +1117,60 @@ class TextParser:
             return None
 
     def extract_chunks(self, text):
-        """
-        Given a block of text, extracts and returns useful chunks.
-
-        TODO - Should sentiments be excluded here?
-        """
-
         chunks = []
         sentiments = []
         text = self.clean_up(text, self.substitutions)
 
         try:
-            blob = TextBlob(
-                text, pos_tagger=pattern_tagger, analyzer=naive_bayes_analyzer
-            )
+            # Download resources only once at the start
+            if not hasattr(TextParser, '_resources_checked'):
+                self.download_nltk_resources()
+                TextParser._resources_checked = True
 
-            for sentence in blob.sentences:
-                try:
-                    if not sentence.tags or not re.search(
-                        r"\b(i|my)\b", str(sentence), re.I
+            sentences = sent_tokenize(text)
+            
+            for sent in sentences:
+                # Only process sentences containing 'i' or 'my'
+                if not re.search(r"\b(i|my)\b", sent, re.I):
+                    continue
+                    
+                # Tokenize and tag the sentence
+                tokens = word_tokenize(sent)
+                tagged = pos_tag(tokens)
+                
+                # Parse the chunks using our existing chunker
+                tree = self.chunker.parse(tagged)
+                
+                # Process the chunks with the same filtering as original
+                for subtree in tree.subtrees(filter=lambda t: t.label() in ["POSS", "ACT1", "ACT2"]):
+                    phrase = [(w.lower(), t) for w, t in subtree.leaves()]
+                    phrase_type = subtree.label()
+
+                    # Skip if doesn't contain 'i' or 'my', or contains skip words
+                    if not any(x in [("i", "PRP"), ("my", "PRP$")] for x in phrase) or (
+                        phrase_type in ["ACT1", "ACT2"] and (
+                            any(word in self.skip_verbs 
+                                for word in [w for w, t in phrase if t.startswith("V")]) or
+                            any(word in self.skip_prepositions 
+                                for word in [w for w, t in phrase if t == "IN"]) or
+                            any(word in self.skip_adjectives 
+                                for word in [w for w, t in phrase if t == "JJ"])
+                        )
                     ):
                         continue
 
-                    tree = self.chunker.parse(sentence.tags)
-
-                    for subtree in tree.subtrees(
-                        filter=lambda t: t.label() in ["POSS", "ACT1", "ACT2"]
-                    ):
-                        phrase = [(w.lower(), t) for w, t in subtree.leaves()]
-                        phrase_type = subtree.label()
-
-                        if not any(
-                            x in [("i", "PRP"), ("my", "PRP$")]
-                            for x in [(w, t) for w, t in phrase]
-                        ) or (
-                            phrase_type in ["ACT1", "ACT2"]
-                            and (
-                                any(
-                                    word in self.skip_verbs
-                                    for word in [
-                                        w for w, t in phrase if t.startswith("V")
-                                    ]
-                                )
-                                or any(
-                                    word in self.skip_prepositions
-                                    for word in [w for w, t in phrase if t == "IN"]
-                                )
-                                or any(
-                                    word in self.skip_adjectives
-                                    for word in [w for w, t in phrase if t == "JJ"]
-                                )
-                            )
-                        ):
-                            continue
-
-                        if subtree.label() == "POSS":
-                            chunk = self.process_possession(subtree)
-                            if chunk:
-                                chunks.append(chunk)
-                        elif subtree.label() in ["ACT1", "ACT2"]:
-                            chunk = self.process_action(subtree)
-                            if chunk:
-                                chunks.append(chunk)
-
-                except StopIteration:
-                    continue  # Skip this sentence and continue with the next
+                    # Process the chunk based on its type
+                    if subtree.label() == "POSS":
+                        chunk = self.process_possession(subtree)
+                        if chunk:
+                            chunks.append(chunk)
+                    elif subtree.label() in ["ACT1", "ACT2"]:
+                        chunk = self.process_action(subtree)
+                        if chunk:
+                            chunks.append(chunk)
 
             return (chunks, sentiments)
 
-        except MissingCorpusError as e:
-            print(f"Error: {e}. Ensure that the necessary corpora are downloaded.")
-            return (chunks, sentiments)
         except Exception as e:
             print(f"An unexpected error occurred: {e}")
             return (chunks, sentiments)
