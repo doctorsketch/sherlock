@@ -382,10 +382,9 @@ class RedditUser:
         return token
 
     def make_request(self, endpoint, params=None):
-        REDDIT_USER_AGENT = 'snoosnoop by /u/MemoryEmptyAgain'
         headers = {
             'Authorization': f'bearer {self.access_token}',
-            'User-Agent': REDDIT_USER_AGENT
+            'User-Agent': os.environ.get('REDDIT_USER_AGENT')
         }
         response = requests.get(f'https://oauth.reddit.com{endpoint}', headers=headers, params=params)
         return response.json()
