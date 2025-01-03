@@ -18,20 +18,25 @@ sub_value       - Value for the above attribute.
                   For instance, male, atheism, iPhone, etc.
 """
 
-subreddits_file = open("subreddits.csv","r")
-
-for (
-  name, topic_level1, topic_level2, topic_level3, 
-  default, ignore_text, sub_attribute, sub_value
-) in csv.reader(subreddits_file, delimiter=',', quoting=csv.QUOTE_NONE):
-  subreddit = {
-    "name" : name,
-    "topic_level1" : topic_level1,
-    "topic_level2" : topic_level2,
-    "topic_level3" : topic_level3,
-    "default" : default,
-    "ignore_text" : ignore_text,
-    "attribute" : sub_attribute.lower(),
-    "value" : sub_value.lower()
-  }
-  subreddits.append(subreddit)
+with open("subreddits.csv", "r", encoding='utf-8') as subreddits_file:
+    reader = csv.reader(subreddits_file, delimiter=',', quoting=csv.QUOTE_MINIMAL)
+    next(reader)  # Skip header row
+    
+    for row in reader:
+        if len(row) != 8:
+            print(f"Warning: Row has {len(row)} columns: {row}")
+            continue
+            
+        name, topic_level1, topic_level2, topic_level3, default, ignore_text, sub_attribute, sub_value = row
+        
+        subreddit = {
+            "name": name,
+            "topic_level1": topic_level1,
+            "topic_level2": topic_level2,
+            "topic_level3": topic_level3,
+            "default": default,
+            "ignore_text": ignore_text,
+            "attribute": sub_attribute.lower(),
+            "value": sub_value.lower()
+        }
+        subreddits.append(subreddit)
