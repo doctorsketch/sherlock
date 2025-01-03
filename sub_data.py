@@ -20,7 +20,6 @@ sub_value       - Value for the above attribute.
 
 with open("subreddits.csv", "r", encoding='utf-8') as subreddits_file:
     reader = csv.reader(subreddits_file, delimiter=',', quoting=csv.QUOTE_MINIMAL)
-    next(reader)  # Skip header row
     
     for row in reader:
         if len(row) != 8:
