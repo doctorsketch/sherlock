@@ -639,10 +639,6 @@ class TextParser:
         (r"\b(btw|by the way)\b", ""),
         (r"\b(tbh|to be honest)\b", ""),
         (r"\b(imh?o|in my( humble)? opinion)\b", ""),
-        # Default POS tagger seems to always tag "like"
-        # (and sometimes "love") as a noun - this is a bandaid fix for now
-        (r"\bprefer\b", ""),
-        (r"\b(like|love)\b", "prefer"),
     ]
 
     corpus_substitutions = [(r"\b(cant|can't)\b", "cannot"), (r"(\&gt\;)", ">")]
@@ -783,6 +779,8 @@ class TextParser:
         "mine",
         "stuff",
         "lot",
+        "like",
+        "love",
     ]
 
     # Should _N include conjunctions?
